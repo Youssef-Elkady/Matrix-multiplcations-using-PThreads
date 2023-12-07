@@ -3,161 +3,123 @@
 #include <vector>
 #include <pthread.h>
 #include <chrono>
-#include <stdlib.h>
+
 
 using namespace std;
-using namespace chrono;
 
-int** result;
-int ** matrix1;
-int ** matrix2;
-int cols1,cols2,rows1,rows2;
-struct params{
-    int i;
-    int j;
-    int n;
+int n;
+int* arr;
 
+struct params {
+    int low;
+    int high;
 };
-void* dotproduct(void* arg){
-    auto *p =(params*)arg;
-    int i = p->i;
-    int j = p->j;
-    int n = p->n;
-    result[i][j] = 0;
-    for (int k=0; k<n; k++){
-        result[i][j] += (matrix1[i][k] * matrix2[k][j]);
-    }
-    pthread_exit(0);
 
+
+int* createArray(){
+    int* array = new int[n];
+    return array;
 }
 
-int** createMatrix(int rows, int cols){
-    int** arr = new int*[rows];
-    for (int i=0; i<rows;i++){
-        arr[i]= new int[cols];
-    }
-    return arr;
-}
+// Merge two sorted subarrays into a single sorted array
+void merge(int low, int mid, int high) {
+    int n1 = mid - low + 1;
+    int n2 = high - mid;
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-void* multiply(void* arg) {
-    auto p = (params*)arg;
-    int i =p->i;
+    vector<int> left(n1);
+    vector<int> right(n2);
 
-    for (int j = 0; j < cols2; ++j) {
-        int partial =0;
-        for (int k = 0; k < cols1; ++k) {
-            partial += matrix1[i][k] * matrix2[k][j];
+    for (int i = 0; i < n1; i++)
+        left[i] = arr[low + i];
+
+    for (int j = 0; j < n2; j++)
+        right[j] = arr[mid + 1 + j];
+
+    int i = 0;
+    int j = 0;
+    int k = low;
+
+    while (i < n1 && j < n2) {
+        if (left[i] <= right[j]) {
+            arr[k] = left[i];
+            i++;
+        } else {
+            arr[k] = right[j];
+            j++;
         }
-        pthread_mutex_lock(&mutex);
-        result[i][j] = partial;
-        pthread_mutex_unlock(&mutex);
+        k++;
     }
 
-    pthread_exit(nullptr);
+    while (i < n1) {
+        arr[k] = left[i];
+        i++;
+        k++;
+    }
+
+    while (j < n2) {
+        arr[k] = right[j];
+        j++;
+        k++;
+    }
 }
 
 
+void* mergeSort(void* arg) {
+    auto p = (params*)arg;
 
+    if (p->low < p->high) {
+        int mid = p->low + (p->high - p->low) / 2;
+
+        // Create parameters for the left and right subarrays
+        params leftParams{p->low, mid};
+        params rightParams{mid + 1, p->high};
+
+        // Create threads for the left and right subarrays
+        pthread_t leftThread, rightThread;
+        pthread_create(&leftThread, NULL, mergeSort, &leftParams);
+        pthread_create(&rightThread, NULL, mergeSort, &rightParams);
+
+        // Wait for both threads to finish
+        pthread_join(leftThread, NULL);
+        pthread_join(rightThread, NULL);
+
+        // Merge the sorted left and right subarrays
+        merge(p->low, mid, p->high);
+    }
+
+    pthread_exit(NULL);
+}
+
+
+void parallelMergeSort(int* arr) {
+   // int arrSize = arr.size();
+
+    params p{ 0, n-1};
+
+    // Create a thread for the initial call to mergeSort
+    pthread_t initialThread;
+    pthread_create(&initialThread, NULL, mergeSort, &p);
+
+    // Wait for the initial thread to finish
+    pthread_join(initialThread, NULL);
+}
 
 int main() {
-
-    ifstream inputFile1("/home/eriksie/Documents/Lab4_TestCases/Lab4_TestCases/input3-matrix.txt");
-    //ifstream inputFile2("/home/eriksie/Documents/Lab4_TestCases/Lab4_TestCases/input2-matrix.txt");
+    ifstream inputFile1("/home/eriksie/Documents/Lab4_TestCases/Lab4_TestCases/input-sort.txt");
 
     if (!inputFile1.is_open() ) {
         cerr << "Error opening file." << endl;
         return 1;
     }
-
-    inputFile1 >> rows1 >> cols1;
-    matrix1 = createMatrix(rows1,cols1);
-
-
-    for (int i = 0; i < rows1; ++i) {
-        for (int j = 0; j < cols1; ++j) {
-            inputFile1 >> matrix1[i][j];
-        }
+    inputFile1 >> n;
+    arr = createArray();
+    for (int i=0;i<n;i++){
+        inputFile1 >> arr[i];
     }
-
-
-
-    inputFile1 >> rows2 >> cols2;
-    matrix2 = createMatrix(rows2,cols2);
-
-
-    for (int i = 0; i < rows2; ++i) {
-        for (int j = 0; j < cols2; ++j) {
-            inputFile1 >> matrix2[i][j];
-
-        }
+    parallelMergeSort(arr);
+    cout << "SORTED ARRAY: ";
+    for (int i=0; i<n;i++){
+        cout << arr[i] << " ";
     }
-
-    inputFile1.close();
-
-    // Check if matrices can be multiplied
-    if (cols1 != rows2) {
-        cerr << "Error: Matrices cannot be multiplied." << endl;
-        return 1;
-    }
-
-    pthread_t threads[rows1][cols2];
-
-    result = createMatrix(rows1,cols2);
-    auto start = chrono::high_resolution_clock::now();
-    for (int i=0; i<rows1;i++){
-        for (int j=0; j<cols2;j++){
-            auto *p = new params();
-
-            p->i =i;
-            p->j =j;
-            p->n =cols1;
-
-            pthread_create(&threads[i][j],NULL,dotproduct, (void*)p);
-        }
-    }
-
-    for (int i=0; i<rows1;i++) {
-        for (int j = 0; j < cols2; j++) {
-            pthread_join(threads[i][j],NULL);
-
-        }
-    }
-    auto stop = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::microseconds>(stop - start);
-    cout << "Result Matrix using Element-Wise multiplication:" << endl;
-    for (int i = 0; i < rows1; ++i) {
-        for (int j = 0; j < cols2; ++j) {
-            cout << result[i][j] << " ";
-        }
-        cout << endl;
-    }
-    cout << "Time taken by the code: " << duration.count() << " microseconds" << endl;
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Initialize pthread variables
-    pthread_t threads2[rows1];
-    start = chrono::high_resolution_clock::now();
-    // Create threads
-    for (int i = 0; i < rows1; ++i) {
-        auto *p = new params();
-        p->i =i;
-        pthread_create(&threads2[i], nullptr, multiply, (void*)p);
-    }
-
-    // Join threads
-    for (int i = 0; i < rows1; ++i) {
-        pthread_join(threads2[i], nullptr);
-    }
-    stop = chrono::high_resolution_clock::now();
-    duration = chrono::duration_cast<chrono::microseconds>(stop - start);
-
-    cout << "Result Matrix:" << endl;
-    for (int i = 0; i < rows1; ++i) {
-        for (int j = 0; j < cols2; ++j) {
-            cout << result[i][j] << " ";
-        }
-        cout << endl;
-    }
-    cout << "Time taken by the code: " << duration.count() << " microseconds" << endl;
-
+    return 0;
 }
